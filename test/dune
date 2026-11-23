@@ -3,3 +3,7 @@
   ../main.exe
   .ocamlformat
   (glob_files */.ocamlformat-ignore)))
+
+(test
+ (name library)
+ (libraries reason-to-mlx))

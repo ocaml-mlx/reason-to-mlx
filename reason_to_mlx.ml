@@ -1,7 +1,6 @@
 open Ppxlib.Parsetree
 open Ppxlib.Asttypes
 type longident = Ppxlib.Longident.t = Lident of string | Ldot of longident * string | Lapply of longident * longident
-open Cmdliner
 module Mlx = Ocamlformat_lib
 module Mlx_ast = Ocamlformat_parser_extended
 
@@ -549,44 +548,7 @@ let preserve_raw_string_literals () =
       | _ -> pattern
   end
 
-let named = function Some "-" | None -> None | path -> path
-
-let read_input input =
-  match named input with
-  | None -> In_channel.input_all stdin
-  | Some path -> In_channel.with_open_bin path In_channel.input_all
-
-let write_output output source =
-  match named output with
-  | None ->
-      Out_channel.output_string stdout source;
-      Out_channel.flush stdout
-  | Some path ->
-      Out_channel.with_open_bin path (fun channel ->
-          Out_channel.output_string channel source)
-
-let input_name input = Option.value (named input) ~default:"stdin.re"
-
-let output_name input output =
-  match named output with
-  | Some path -> path
-  | None ->
-      let input = input_name input in
-      let extension =
-        if String.equal (Filename.extension input) ".rei" then ".mli"
-        else ".mlx"
-      in
-      Filename.remove_extension input ^ extension
-
 type source_kind = Structure | Signature
-
-let source_kind input output =
-  let has_extension extension path =
-    Option.fold (named path) ~none:false ~some:(fun path ->
-        String.equal (Filename.extension path) extension)
-  in
-  if has_extension ".rei" input || has_extension ".mli" output then Signature
-  else Structure
 
 type source_comment = { id : int; text : string; location : Location.t }
 
@@ -5743,20 +5705,7 @@ let realign_comment_continuations source comments =
         | _ -> source)
     source comments
 
-let convert associative_operators input output =
-  let reason_source = read_input input in
-  let input_name = input_name input in
-  let output_name = output_name input output in
-  let kind = source_kind input output in
-  let is_stdin = Option.is_none (named input) in
-  let conf =
-    match
-      Bin_conf.build_config ~enable_outside_detected_project:true ~root:None
-        ~file:output_name ~is_stdin
-    with
-    | Ok conf -> conf
-    | Error message -> failwith message
-  in
+let convert_exn ~conf ~associative_operators ~kind ~input_name ~output_name reason_source =
   let marked, marker_comments, lead_comments, inline_comments =
     print_ocaml_bridge ~kind ~input_name reason_source
   in
@@ -5805,50 +5754,34 @@ let convert associative_operators input output =
   in
   check_format_stable ~kind ~input_name:output_name ~conf source;
   check_comments_preserved ~input_name:output_name source all_comments;
-  write_output output source
+  source
 
 let error_message exn =
   match exn with
   | Reason.Reason_errors.Reason_error (error, loc) ->
-      Reason.Reason_errors.report_error Format.str_formatter ~loc error;
-      Format.flush_str_formatter ()
+      Format.asprintf "%a"
+        (fun fmt -> Reason.Reason_errors.report_error fmt ~loc) error
   | Failure message -> message
   | Sys_error message -> message
   | exn -> Printexc.to_string exn
 
-let run associative_operators input output =
-  try
-    convert associative_operators input output;
-    `Ok ()
-  with exn -> `Error (false, error_message exn)
-
-let input =
-  let doc = "Reason source file. Use - or omit it to read standard input." in
-  Arg.(value & pos 0 (some string) None & info [] ~doc ~docv:"FILE")
-
-let output =
-  let doc =
-    "Write MLX source to $(docv). Standard output is used when this option is \
-     omitted."
+let convert ?(conf = Mlx.Conf.default) ?(associative_operators = [])
+    ?(kind = Structure) ?input_name ?output_name source =
+  let input_name =
+    Option.value input_name
+      ~default:(match kind with Structure -> "stdin.re" | Signature -> "stdin.rei")
   in
-  Arg.(
-    value & opt (some string) None & info [ "o"; "output" ] ~doc ~docv:"FILE")
-
-let associative_operators =
-  let doc =
-    "Comma-separated infix operators that can be reassociated for flatter \
-     output."
+  let output_name =
+    Option.value output_name
+      ~default:(match kind with Structure -> "stdout.mlx" | Signature -> "stdout.mli")
   in
-  Arg.(
-    value
-    & opt (list string) []
-    & info [ "associative-operators" ] ~doc ~docv:"OPERATORS")
-
-let command =
-  let doc = "convert Reason source to formatted MLX" in
-  let info = Cmd.info "reason-to-mlx" ~doc in
-  Cmd.v info
-    Term.(
-      ret (const run $ associative_operators $ input $ output))
-
-let () = exit (Cmd.eval command)
+  let previous_input_name = !Location.input_name in
+  let previous_recoverable = !(Reason.Reason_config.recoverable) in
+  Fun.protect
+    ~finally:(fun () ->
+      Location.input_name := previous_input_name;
+      Reason.Reason_config.configure ~recoverable:previous_recoverable)
+    (fun () ->
+      try
+        Ok (convert_exn ~conf ~associative_operators ~kind ~input_name ~output_name source)
+      with exn -> Error (error_message exn))

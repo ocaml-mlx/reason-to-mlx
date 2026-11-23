@@ -1,12 +1,22 @@
-(executable
- (name main)
+(library
+ (name reason_to_mlx)
  (public_name reason-to-mlx)
+ (modules reason_to_mlx)
  (libraries
-  cmdliner
-  ocamlformat-mlx.bin_conf
   ocamlformat-mlx-lib
   ocamlformat-mlx-lib.format_
   ocamlformat-mlx-lib.ocaml_common
   ocamlformat-mlx-lib.parser_extended
   ppxlib
   reason))
+
+(executable
+ (name cli)
+ (public_name reason-to-mlx)
+ (modules cli)
+ (libraries cmdliner ocamlformat-mlx.bin_conf reason_to_mlx))
+
+; Preserve the existing dune exec path and Cram fixtures.
+(rule
+ (target main.exe)
+ (action (copy cli.exe %{target})))
