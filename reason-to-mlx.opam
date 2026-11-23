@@ -8,6 +8,7 @@ license: "MIT"
 homepage: "https://github.com/ocaml-mlx/reason-to-mlx"
 bug-reports: "https://github.com/ocaml-mlx/reason-to-mlx/issues"
 dev-repo: "git+https://github.com/ocaml-mlx/reason-to-mlx.git"
+x-maintenance-intent: ["(latest)"]
 depends: [
   "ocaml" {>= "5.5"}
   "dune" {>= "3.21"}
