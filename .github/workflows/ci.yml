@@ -42,5 +42,6 @@ jobs:
         with:
           packages: reason-to-mlx
           changelog: ./CHANGES.md
-          github-token: ${{ secrets.GH_TOKEN }}
+          github-token: ${{ secrets.GH_TOKEN || github.token }}
+          to-opam-repository: ${{ secrets.GH_TOKEN != '' }}
           pr-preamble-message: "Released automatically by dune-release-action. Contact @davesnx"
